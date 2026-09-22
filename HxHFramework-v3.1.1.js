@@ -721,13 +721,15 @@ window.HxHFramework.utilities.waitFor = waitFor;
  *     mese:      '2026-10',
  *     rilevato:  true|false,   // false = record del mese non ancora presente (o errore)
  *     posizione: 142|null,
- *     dentro:    true|false    // true solo se rilevato e posizione <= SOGLIA
+ *     dentro:    true|false,   // true solo se rilevato e posizione <= SOGLIA
+ *     simulato:  true          // presente solo se attiva la simulazione (vedi simula())
  * }
  */
 
 var TOPFORUM_URL       = 'https://spam-limitato-e-illimitato-default-rtdb.europe-west1.firebasedatabase.app';
 var TOPFORUM_SOGLIA    = 200;
 var TOPFORUM_CACHE_KEY = 'hxh-topforum';
+var TOPFORUM_TEST_KEY  = 'hxh-topforum-test';
 
 window.HxHFramework.constants.TOPFORUM_FIREBASE_URL = TOPFORUM_URL;
 window.HxHFramework.constants.TOPFORUM_SOGLIA       = TOPFORUM_SOGLIA;
@@ -771,6 +773,47 @@ function topForumRisultato(mese, record) {
         dentro:    ok ? record.posizione <= TOPFORUM_SOGLIA : false
     };
     return ris;
+}
+
+/**
+ * Simulazione per i test (solo staff): se nel localStorage c'è una
+ * posizione di prova, get() restituisce quella invece del dato reale,
+ * senza leggere né scrivere su Firebase.
+ * @returns {Object|null} Risultato simulato, o null se non attiva
+ */
+function topForumSimulazione() {
+    if (!document.body || !isStaff()) return null;
+    var valore = storageGet(TOPFORUM_TEST_KEY);
+    if (valore === null) return null;
+    var pos = parseInt(valore, 10);
+    if (isNaN(pos) || pos < 1) return null;
+    var ris = topForumRisultato(topForumMese(), { posizione: pos });
+    ris.simulato = true;
+    console.warn('[HxHFramework] topForum SIMULATO: posizione ' + pos + (ris.dentro ? ' (dentro)' : ' (fuori)'));
+    return ris;
+}
+
+/**
+ * Attiva o disattiva la simulazione (solo staff).
+ * @param {number|null} posizione Posizione da simulare, o null per tornare al dato reale
+ *
+ * @example
+ * HxHFramework.topForum.simula(150);  // dentro
+ * HxHFramework.topForum.simula(201);  // fuori
+ * HxHFramework.topForum.simula(null); // disattiva
+ */
+function topForumSimula(posizione) {
+    if (posizione === null || posizione === undefined) {
+        storageRemove(TOPFORUM_TEST_KEY);
+        console.log('[HxHFramework] topForum: simulazione disattivata');
+        return;
+    }
+    if (!isStaff()) {
+        console.warn('[HxHFramework] topForum: simulazione riservata allo staff');
+        return;
+    }
+    storageSet(TOPFORUM_TEST_KEY, String(parseInt(posizione, 10)));
+    console.log('[HxHFramework] topForum: simulazione attiva, posizione ' + posizione);
 }
 
 function topForumSalvaCache(mese, record) {
@@ -864,6 +907,12 @@ var topForumInAttesa = null;
  * });
  */
 function topForumGet(callback) {
+    var simulato = topForumSimulazione();
+    if (simulato) {
+        callback(simulato);
+        return;
+    }
+
     var mese  = topForumMese();
     var cache = storageGet(TOPFORUM_CACHE_KEY, true);
 
@@ -902,7 +951,8 @@ window.HxHFramework.topForum = {
     get:          topForumGet,
     mese:         topForumMese,
     leggiPagina:  topForumLeggiPagina,
-    svuotaCache:  topForumSvuotaCache
+    svuotaCache:  topForumSvuotaCache,
+    simula:       topForumSimula
 };
 
 // Rilevamento automatico: in home si prova sempre, così il record
